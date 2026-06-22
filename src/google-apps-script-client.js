@@ -13,6 +13,7 @@ export async function postToAppsScript(config, payload) {
       ...payload,
       integrationKey: config.integrationKey || '',
       spreadsheetId: config.spreadsheetId || '',
+      sheetName: config.sheetName || 'leituras',
       source: 'solo-companhia-lims',
       sentAt: new Date().toISOString(),
     }),

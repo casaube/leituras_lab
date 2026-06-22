@@ -50,6 +50,8 @@ npm run check
 - Controle de R2, CQ, diluicao, estouro de escala e salto de sequencia.
 - Fila offline real em IndexedDB com Dexie.
 - Sincronizacao da fila com Google Sheets via Web App do Apps Script.
+- Configuracao de integracao: Web App, chave, spreadsheetId, aba principal, status e ultimo erro.
+- Comissionamento serial com captura de linhas brutas reais por aparelho.
 - Trilha de auditoria local.
 
 ## Aparelhos cadastrados
@@ -64,6 +66,7 @@ npm run check
 
 - [Conexao de aparelhos e Google Drive](docs/CONEXAO_APARELHOS_E_GOOGLE_DRIVE.md)
 - [Arquitetura planejada para evolucao LIMS](docs/architecture/README.md)
+- [Comissionamento de aparelhos](docs/COMISSIONAMENTO_APARELHOS.md)
 
 ## Proximas etapas
 
@@ -88,9 +91,26 @@ A interface envia os registros pendentes para um Web App do Google Apps Script u
 - URL do Web App publicado.
 - Chave de integracao.
 - ID da planilha, quando o script nao estiver vinculado diretamente a ela.
+- Aba principal de leituras, por padrao `leituras`.
+- Status, ultimo erro e ultima sincronizacao ficam visiveis no painel.
 
 Script de referencia para colar no Apps Script:
 
 [docs/google-apps-script-webapp.js](docs/google-apps-script-webapp.js)
 
 Nota: a chave de integracao configurada no navegador e uma protecao simples para MVP. Para producao com credenciais fortes, use um backend ou controle de identidade corporativo.
+
+## Comissionamento dos aparelhos
+
+No painel `Conexao do aparelho`, use `Comissionamento serial` para capturar linhas reais enviadas pelo equipamento conectado.
+
+Fluxo:
+
+1. Selecione o aparelho e o baud rate.
+2. Clique em `Conectar`.
+3. Clique em `Capturar`.
+4. Acione leituras reais no equipamento.
+5. Confira a linha bruta e o valor parseado.
+6. Ajuste `Regex valor` quando a linha trouxer mais de um numero ou informacoes extras.
+
+O comissionamento final ainda depende das linhas reais de cada aparelho em bancada.

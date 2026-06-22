@@ -36,6 +36,8 @@ const serialSession = {
   connected: false,
 };
 
+const MAX_COMMISSIONING_LINES = 25;
+
 const defaultTemplate = RACK_TEMPLATES.RACK_50_5X10;
 
 const state = await loadState();
@@ -113,8 +115,14 @@ function createInitialState() {
       endpointUrl: '',
       integrationKey: '',
       spreadsheetId: '',
+      sheetName: 'leituras',
       lastStatus: 'Nao configurado',
       lastError: '',
+    },
+    commissioning: {
+      isCapturing: false,
+      capturedLines: [],
+      lastCapturedAt: null,
     },
     addBenchDraft: {
       name: 'Nova bancada',
@@ -154,6 +162,13 @@ async function loadState() {
       googleIntegration: {
         ...defaults.googleIntegration,
         ...(parsed.googleIntegration ?? {}),
+      },
+      commissioning: {
+        ...defaults.commissioning,
+        ...(parsed.commissioning ?? {}),
+        capturedLines: Array.isArray(parsed.commissioning?.capturedLines)
+          ? parsed.commissioning.capturedLines.slice(0, MAX_COMMISSIONING_LINES)
+          : [],
       },
       addBenchDraft: parsed.addBenchDraft ?? defaults.addBenchDraft,
     };
@@ -346,6 +361,56 @@ function parseDeviceValue(line, bench = selectedBench()) {
   const match = line.match(regex);
   if (!match) return null;
   return Number.parseFloat(match[0].replace(',', '.'));
+}
+
+function recordCommissioningLine(rawLine, parsedValue) {
+  if (!state.commissioning.isCapturing) return;
+
+  const bench = selectedBench();
+  const device = selectedDevice(bench);
+  const captured = {
+    id: uid('serial_line'),
+    capturedAt: nowIso(),
+    benchId: bench.id,
+    benchName: bench.name,
+    instrumentCode: bench.instrumentCode,
+    instrumentLabel: device.label,
+    baudRate: bench.baudRate,
+    parserPattern: bench.parserPattern,
+    rawLine,
+    parsedValue,
+    parsedOk: Number.isFinite(parsedValue),
+  };
+
+  state.commissioning.capturedLines = [
+    captured,
+    ...state.commissioning.capturedLines,
+  ].slice(0, MAX_COMMISSIONING_LINES);
+  state.commissioning.lastCapturedAt = captured.capturedAt;
+  persist();
+}
+
+function toggleCommissioningCapture() {
+  state.commissioning.isCapturing = !state.commissioning.isCapturing;
+  addAlert(
+    state.commissioning.isCapturing ? 'info' : 'warning',
+    state.commissioning.isCapturing
+      ? 'Comissionamento serial iniciado. As proximas linhas reais serao registradas.'
+      : 'Comissionamento serial pausado.',
+  );
+  persist();
+  render();
+}
+
+function clearCommissioningLines() {
+  state.commissioning.capturedLines = [];
+  state.commissioning.lastCapturedAt = null;
+  void appendAudit('COMMISSIONING_LINES_CLEARED', {
+    benchId: selectedBench().id,
+  });
+  addAlert('warning', 'Linhas de comissionamento removidas desta estacao.');
+  persist();
+  render();
 }
 
 function simulateReading() {
@@ -566,6 +631,7 @@ async function readSerialLoop() {
           if (!cleaned) continue;
           serialSession.lastLine = cleaned;
           const parsed = parseDeviceValue(cleaned);
+          recordCommissioningLine(cleaned, parsed);
           if (parsed !== null) {
             ingestReading(parsed, 'serial');
           } else {
@@ -914,6 +980,7 @@ function renderDevicePanel(bench, device) {
         <strong>${escapeHtml(device.physicalPort)}</strong>
         <small>${escapeHtml(device.notes)}</small>
       </div>
+      ${renderCommissioningPanel()}
       <div class="serial-monitor">
         <span>Ultima linha</span>
         <strong>${escapeHtml(serialSession.lastLine || '---')}</strong>
@@ -986,16 +1053,52 @@ function renderGoogleIntegrationPanel() {
         <span>ID da planilha</span>
         <input data-action="change-google-spreadsheet" value="${escapeHtml(config.spreadsheetId)}" placeholder="Opcional se fixo no Apps Script" />
       </label>
+      <label class="field">
+        <span>Aba principal</span>
+        <input data-action="change-google-sheet" value="${escapeHtml(config.sheetName || 'leituras')}" placeholder="leituras" />
+      </label>
       <div class="integration-status ${config.lastError ? 'danger' : ''}">
         <span>Status</span>
         <strong>${escapeHtml(config.lastStatus || 'Nao configurado')}</strong>
-        ${config.lastError ? `<small>${escapeHtml(config.lastError)}</small>` : ''}
+        <small>Ultimo erro: ${escapeHtml(config.lastError || 'nenhum')}</small>
+        <small>Ultima sincronizacao: ${state.lastSyncAt ? new Date(state.lastSyncAt).toLocaleString('pt-BR') : 'nunca'}</small>
       </div>
       <div class="button-row">
         <button class="soft-button" data-action="test-google-integration" type="button">Testar conexao</button>
         <button class="primary-button" data-action="sync-pending" type="button">Enviar fila</button>
       </div>
     </section>
+  `;
+}
+
+function renderCommissioningPanel() {
+  const lines = state.commissioning.capturedLines;
+
+  return `
+    <div class="commissioning-panel">
+      <div class="commissioning-header">
+        <div>
+          <span>Comissionamento serial</span>
+          <strong>${state.commissioning.isCapturing ? 'Capturando linhas reais' : 'Captura pausada'}</strong>
+        </div>
+        <div class="button-row compact">
+          <button class="soft-button small" data-action="toggle-commissioning" type="button">
+            ${state.commissioning.isCapturing ? 'Pausar' : 'Capturar'}
+          </button>
+          <button class="soft-button small" data-action="clear-commissioning" type="button" ${lines.length ? '' : 'disabled'}>Limpar</button>
+        </div>
+      </div>
+      <div class="commissioning-list">
+        ${lines.length === 0
+          ? '<p class="empty">Conecte o aparelho, clique em Capturar e envie leituras reais pelo equipamento.</p>'
+          : lines.slice(0, 8).map((line) => `
+            <article class="${line.parsedOk ? 'ok' : 'danger'}">
+              <strong>${escapeHtml(line.rawLine)}</strong>
+              <span>${line.parsedOk ? `Valor: ${line.parsedValue}` : 'Valor nao identificado'} | ${new Date(line.capturedAt).toLocaleTimeString('pt-BR')}</span>
+            </article>
+          `).join('')}
+      </div>
+    </div>
   `;
 }
 
@@ -1127,6 +1230,8 @@ function handleClick(event) {
   if (action === 'disconnect-serial') disconnectSerial();
   if (action === 'sync-pending') syncPending();
   if (action === 'test-google-integration') testGoogleIntegration();
+  if (action === 'toggle-commissioning') toggleCommissioningCapture();
+  if (action === 'clear-commissioning') clearCommissioningLines();
   if (action === 'add-bench') addBench();
   if (action === 'apply-layout') applyLayoutToCurrentBench();
 
@@ -1229,6 +1334,11 @@ function handleInput(event) {
 
   if (action === 'change-google-spreadsheet') {
     state.googleIntegration.spreadsheetId = target.value.trim();
+    persist();
+  }
+
+  if (action === 'change-google-sheet') {
+    state.googleIntegration.sheetName = target.value.trim() || 'leituras';
     persist();
   }
 }

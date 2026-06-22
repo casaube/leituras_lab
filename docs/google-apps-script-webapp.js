@@ -74,6 +74,7 @@ function validateRequest_(request) {
 }
 
 function appendItems_(spreadsheet, items, request) {
+  const readingsSheetName = request.sheetName || 'leituras';
   const readings = [];
   const qcs = [];
   const audits = [];
@@ -120,7 +121,7 @@ function appendItems_(spreadsheet, items, request) {
     }
   });
 
-  appendRows_(getSheet_(spreadsheet, 'leituras', [
+  appendRows_(getSheet_(spreadsheet, readingsSheetName, [
     'reading_id',
     'batch_id',
     'bench_id',

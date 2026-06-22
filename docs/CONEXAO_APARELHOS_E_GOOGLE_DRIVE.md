@@ -90,7 +90,7 @@ Esses valores devem ser confirmados no manual de cada aparelho ou no menu de com
 8. Ajustar baud rate.
 9. Clicar em `Conectar` e autorizar a porta serial no navegador.
 10. Fazer 5 leituras de teste com padrao conhecido.
-11. Registrar as linhas brutas recebidas.
+11. Registrar as linhas brutas recebidas pelo painel de comissionamento serial da interface.
 12. Ajustar a regex ate extrair exatamente o valor esperado.
 13. Validar arredondamento, separador decimal, unidade e elemento quimico.
 14. Salvar a configuracao aprovada do aparelho no perfil definitivo.
@@ -159,6 +159,8 @@ Abas recomendadas:
 | `operator` | Tecnico/analista |
 | `recorded_at` | Data/hora local |
 | `synced_at` | Data/hora de sincronizacao |
+
+A aba principal pode ser configurada na interface. O padrao recomendado e `leituras`.
 
 ### `auditoria`
 
