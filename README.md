@@ -1,0 +1,74 @@
+# Solo & Companhia - Interface de Leitura de Bancada
+
+Middleware web para aquisicao de leituras laboratoriais de solos, com foco inicial em bancadas de espectrofotometria, fotometria de chama e absorcao atomica.
+
+## Estado atual
+
+Este repositorio agora esta estruturado como um app executavel na raiz:
+
+```txt
+.
+  index.html
+  server.mjs
+  src/
+    app.js
+    data.js
+    styles.css
+  assets/
+    solo-companhia-logo.svg
+  docs/
+    CONEXAO_APARELHOS_E_GOOGLE_DRIVE.md
+    architecture/
+```
+
+## Como rodar
+
+```bash
+npm start
+```
+
+Depois acesse:
+
+```txt
+http://127.0.0.1:5174
+```
+
+Abrir por `localhost` e importante porque a Web Serial API exige contexto seguro.
+
+## Validacao rapida
+
+```bash
+npm run check
+```
+
+## Funcionalidades atuais
+
+- Multiplas bancadas independentes.
+- Bandeja 30, Rack 50, Gradinha 90, Microplaca 96 e layout customizado.
+- Conexao por Web Serial API em Chrome/Edge.
+- Leitura manual e simulada para testes sem aparelho.
+- Controle de R2, CQ, diluicao, estouro de escala e salto de sequencia.
+- Fila offline demonstrativa.
+- Trilha de auditoria local.
+
+## Aparelhos cadastrados
+
+- Kasvi K37-UVVIS0
+- GBC SavantAA
+- Femto 600 Plus
+- Metash V-5000 Visible
+- Fotometro de Chama 910 M - Analyser
+
+## Documentacao
+
+- [Conexao de aparelhos e Google Drive](docs/CONEXAO_APARELHOS_E_GOOGLE_DRIVE.md)
+- [Arquitetura planejada para evolucao LIMS](docs/architecture/README.md)
+
+## Proximas etapas
+
+- Substituir `localStorage` por IndexedDB/Dexie.
+- Implementar sincronizacao real com Google Sheets/Drive.
+- Validar os parsers seriais com linhas reais dos aparelhos.
+- Criar abertura/fechamento formal de lote.
+- Adicionar autenticacao de operadores.
+
