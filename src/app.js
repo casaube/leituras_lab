@@ -8,6 +8,16 @@ import {
   STATUS_ORDER,
   STORAGE_KEY,
 } from './data.js';
+import {
+  countPendingSyncItems,
+  enqueueSyncItem,
+  getPendingSyncItems,
+  getRecentAuditEvents,
+  listSyncQueue,
+  markSyncItemsSynced,
+  migrateLegacyOfflineRecords,
+  recordAuditEvent,
+} from './offline-db.js';
 
 const app = document.querySelector('#app');
 
@@ -22,7 +32,7 @@ const serialSession = {
 
 const defaultTemplate = RACK_TEMPLATES.RACK_50_5X10;
 
-const state = loadState();
+const state = await loadState();
 
 function nowIso() {
   return new Date().toISOString();
@@ -91,6 +101,7 @@ function createInitialState() {
     alerts: [],
     auditTrail: [],
     syncQueue: [],
+    pendingSyncCount: 0,
     lastSyncAt: null,
     addBenchDraft: {
       name: 'Nova bancada',
@@ -101,9 +112,15 @@ function createInitialState() {
   };
 }
 
-function loadState() {
+async function loadState() {
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return createInitialState();
+  if (!raw) {
+    const initial = createInitialState();
+    initial.auditTrail = await getRecentAuditEvents();
+    initial.syncQueue = await listSyncQueue();
+    initial.pendingSyncCount = await countPendingSyncItems();
+    return initial;
+  }
 
   try {
     const parsed = JSON.parse(raw);
@@ -111,18 +128,34 @@ function loadState() {
       return createInitialState();
     }
 
+    await migrateLegacyOfflineRecords(parsed);
+
     return {
       ...createInitialState(),
       ...parsed,
+      auditTrail: await getRecentAuditEvents(),
+      syncQueue: await listSyncQueue(),
+      pendingSyncCount: await countPendingSyncItems(),
       addBenchDraft: parsed.addBenchDraft ?? createInitialState().addBenchDraft,
     };
   } catch {
-    return createInitialState();
+    const initial = createInitialState();
+    initial.auditTrail = await getRecentAuditEvents();
+    initial.syncQueue = await listSyncQueue();
+    initial.pendingSyncCount = await countPendingSyncItems();
+    return initial;
   }
 }
 
 function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  const { auditTrail, syncQueue, pendingSyncCount, ...uiState } = state;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(uiState));
+}
+
+async function refreshOfflineState() {
+  state.auditTrail = await getRecentAuditEvents();
+  state.syncQueue = await listSyncQueue();
+  state.pendingSyncCount = await countPendingSyncItems();
 }
 
 function selectedBench() {
@@ -150,18 +183,33 @@ function addAlert(level, message) {
   persist();
 }
 
-function appendAudit(type, payload) {
-  state.auditTrail = [
-    {
-      id: uid('audit'),
-      type,
-      actor: selectedBench().analystName,
-      occurredAt: nowIso(),
-      payload,
-    },
-    ...state.auditTrail,
-  ];
+async function appendAudit(type, payload) {
+  const event = {
+    id: uid('audit'),
+    type,
+    actor: selectedBench().analystName,
+    occurredAt: nowIso(),
+    payload,
+  };
+
+  state.auditTrail = [event, ...state.auditTrail].slice(0, 100);
   persist();
+  await recordAuditEvent(event);
+}
+
+async function appendSyncItem(type, payload) {
+  const item = await enqueueSyncItem({
+    id: uid(type === 'READING_CREATED' ? 'reading' : 'sync'),
+    type,
+    status: 'pending',
+    createdAt: nowIso(),
+    payload,
+  });
+
+  state.syncQueue = [item, ...state.syncQueue].slice(0, 250);
+  state.pendingSyncCount = await countPendingSyncItems();
+  persist();
+  return item;
 }
 
 function updateBench(benchId, patcher) {
@@ -259,7 +307,7 @@ function ingestReading(rawValue, source) {
     return draft;
   });
 
-  appendAudit('READING_RECEIVED', {
+  void appendAudit('READING_RECEIVED', {
     benchId: bench.id,
     tube: bench.currentPosition,
     rawValue,
@@ -292,7 +340,7 @@ function simulateReading() {
   ingestReading(Number(rawValue.toFixed(3)), 'simulador');
 }
 
-function saveReading() {
+async function saveReading() {
   const bench = selectedBench();
   const reasons = saveBlockReasons(bench);
   if (reasons.length > 0) {
@@ -320,25 +368,19 @@ function saveReading() {
     return draft;
   });
 
-  state.syncQueue.push({
-    id: uid('reading'),
-    type: 'READING_CREATED',
-    status: 'pending',
-    createdAt: nowIso(),
-    payload: {
-      benchId: bench.id,
-      benchName: bench.name,
-      batchId: bench.batchId,
-      analysisCode: bench.analysisCode,
-      instrumentCode: bench.instrumentCode,
-      tube: bench.currentPosition,
-      rawValue,
-      dilutionFactor,
-      finalValue,
-    },
+  await appendSyncItem('READING_CREATED', {
+    benchId: bench.id,
+    benchName: bench.name,
+    batchId: bench.batchId,
+    analysisCode: bench.analysisCode,
+    instrumentCode: bench.instrumentCode,
+    tube: bench.currentPosition,
+    rawValue,
+    dilutionFactor,
+    finalValue,
   });
 
-  appendAudit('READING_SAVED', {
+  await appendAudit('READING_SAVED', {
     benchId: bench.id,
     tube: bench.currentPosition,
     rawValue,
@@ -357,7 +399,7 @@ function saveReading() {
   render();
 }
 
-function completeQualityControl() {
+async function completeQualityControl() {
   const bench = selectedBench();
 
   updateBench(bench.id, (draft) => {
@@ -366,22 +408,16 @@ function completeQualityControl() {
     return draft;
   });
 
-  appendAudit('QUALITY_CONTROL_PERFORMED', {
+  await appendAudit('QUALITY_CONTROL_PERFORMED', {
     benchId: bench.id,
     batchId: bench.batchId,
     analysisCode: bench.analysisCode,
   });
 
-  state.syncQueue.push({
-    id: uid('qc'),
-    type: 'QUALITY_CONTROL_PERFORMED',
-    status: 'pending',
-    createdAt: nowIso(),
-    payload: {
-      benchId: bench.id,
-      batchId: bench.batchId,
-      analysisCode: bench.analysisCode,
-    },
+  await appendSyncItem('QUALITY_CONTROL_PERFORMED', {
+    benchId: bench.id,
+    batchId: bench.batchId,
+    analysisCode: bench.analysisCode,
   });
 
   addAlert('success', 'CQ registrado. Bancada liberada.');
@@ -417,7 +453,7 @@ function jumpToTube(position) {
     return draft;
   });
 
-  appendAudit('SEQUENCE_JUMP_CONFIRMED', {
+  void appendAudit('SEQUENCE_JUMP_CONFIRMED', {
     benchId: bench.id,
     from: bench.currentPosition,
     to: position,
@@ -531,16 +567,14 @@ async function readSerialLoop() {
   }
 }
 
-function syncPending() {
-  const pending = state.syncQueue.filter((item) => item.status === 'pending');
-  state.syncQueue = state.syncQueue.map((item) =>
-    item.status === 'pending'
-      ? { ...item, status: 'synced', syncedAt: nowIso() }
-      : item,
-  );
+async function syncPending() {
+  const pending = await getPendingSyncItems();
+  const syncedAt = nowIso();
+  await markSyncItemsSynced(pending.map((item) => item.id), syncedAt);
   state.lastSyncAt = nowIso();
+  await refreshOfflineState();
 
-  appendAudit('SYNC_BATCH_SIMULATED', {
+  await appendAudit('SYNC_BATCH_SIMULATED', {
     count: pending.length,
     target: 'Google Drive / Sheets API',
   });
@@ -563,7 +597,7 @@ function addBench() {
 
   state.benches.push(bench);
   state.selectedBenchId = bench.id;
-  appendAudit('BENCH_CREATED', { benchId: bench.id, name: bench.name, rows, columns });
+  void appendAudit('BENCH_CREATED', { benchId: bench.id, name: bench.name, rows, columns });
   addAlert('success', `${bench.name} criada com ${rows * columns} posicoes.`);
   persist();
   render();
@@ -589,7 +623,7 @@ function applyLayoutToCurrentBench() {
     rack: createRack(rows, columns),
   }));
 
-  appendAudit('RACK_LAYOUT_CHANGED', { benchId: bench.id, rows, columns });
+  void appendAudit('RACK_LAYOUT_CHANGED', { benchId: bench.id, rows, columns });
   addAlert('warning', `Layout aplicado: ${rows} fileiras x ${columns} posicoes.`);
   render();
 }
@@ -599,7 +633,7 @@ function render() {
   const analysis = selectedAnalysis(bench);
   const device = selectedDevice(bench);
   const reasons = saveBlockReasons(bench);
-  const pendingSyncCount = state.syncQueue.filter((item) => item.status === 'pending').length;
+  const pendingSyncCount = state.pendingSyncCount;
 
   app.innerHTML = `
     <div class="layout ${state.sidebarCollapsed ? 'is-collapsed' : ''}">

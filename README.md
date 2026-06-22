@@ -48,7 +48,7 @@ npm run check
 - Conexao por Web Serial API em Chrome/Edge.
 - Leitura manual e simulada para testes sem aparelho.
 - Controle de R2, CQ, diluicao, estouro de escala e salto de sequencia.
-- Fila offline demonstrativa.
+- Fila offline real em IndexedDB com Dexie.
 - Trilha de auditoria local.
 
 ## Aparelhos cadastrados
@@ -66,9 +66,16 @@ npm run check
 
 ## Proximas etapas
 
-- Substituir `localStorage` por IndexedDB/Dexie.
 - Implementar sincronizacao real com Google Sheets/Drive.
 - Validar os parsers seriais com linhas reais dos aparelhos.
 - Criar abertura/fechamento formal de lote.
 - Adicionar autenticacao de operadores.
 
+## Persistencia offline
+
+A interface usa duas camadas locais:
+
+- `localStorage`: apenas preferencias e estado visual da bancada.
+- IndexedDB/Dexie: fila de sincronizacao e trilha de auditoria.
+
+O modulo responsavel e [src/offline-db.js](src/offline-db.js). A fila antiga em `localStorage`, quando existir, e migrada automaticamente na primeira abertura.

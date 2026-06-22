@@ -289,9 +289,9 @@ Esta opcao e boa para MVP rapido, mas precisa cuidado com seguranca:
 
 ### Fase 2 - Persistencia offline real
 
-- Trocar armazenamento local simples por IndexedDB/Dexie.
-- Criar tabela `readings_queue`.
-- Criar tabela `audit_events`.
+- Consolidar a fila offline em IndexedDB/Dexie ja implementada na interface.
+- Manter tabela Dexie `syncQueue`.
+- Manter tabela Dexie `auditEvents`.
 - Implementar retry com backoff.
 - Usar `reading_id` como chave idempotente para evitar duplicidade no Google Sheets.
 
@@ -340,4 +340,3 @@ Esta opcao e boa para MVP rapido, mas precisa cuidado com seguranca:
 - Google Sheets API para leitura/escrita de valores: https://developers.google.com/workspace/sheets/api/guides/values
 - Google Identity Services - token model: https://developers.google.com/identity/oauth2/web/guides/use-token-model
 - Google Apps Script Web Apps: https://developers.google.com/apps-script/guides/web
-
