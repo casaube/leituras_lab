@@ -49,6 +49,19 @@ export async function markSyncItemsSynced(ids, syncedAt = new Date().toISOString
   });
 }
 
+export async function markSyncItemsFailed(ids, errorMessage) {
+  await offlineDb.transaction('rw', offlineDb.syncQueue, async () => {
+    await Promise.all(ids.map(async (id) => {
+      const item = await offlineDb.syncQueue.get(id);
+      await offlineDb.syncQueue.update(id, {
+        status: 'pending',
+        attempts: (item?.attempts ?? 0) + 1,
+        lastError: errorMessage,
+      });
+    }));
+  });
+}
+
 export async function countPendingSyncItems() {
   return offlineDb.syncQueue
     .where('status')

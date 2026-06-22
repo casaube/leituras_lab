@@ -14,10 +14,16 @@ import {
   getPendingSyncItems,
   getRecentAuditEvents,
   listSyncQueue,
+  markSyncItemsFailed,
   markSyncItemsSynced,
   migrateLegacyOfflineRecords,
   recordAuditEvent,
 } from './offline-db.js';
+import {
+  hasGoogleIntegrationConfig,
+  syncQueueToAppsScript,
+  testAppsScriptConnection,
+} from './google-apps-script-client.js';
 
 const app = document.querySelector('#app');
 
@@ -103,6 +109,13 @@ function createInitialState() {
     syncQueue: [],
     pendingSyncCount: 0,
     lastSyncAt: null,
+    googleIntegration: {
+      endpointUrl: '',
+      integrationKey: '',
+      spreadsheetId: '',
+      lastStatus: 'Nao configurado',
+      lastError: '',
+    },
     addBenchDraft: {
       name: 'Nova bancada',
       templateCode: 'TRAY_30_3X10',
@@ -130,13 +143,19 @@ async function loadState() {
 
     await migrateLegacyOfflineRecords(parsed);
 
+    const defaults = createInitialState();
+
     return {
-      ...createInitialState(),
+      ...defaults,
       ...parsed,
       auditTrail: await getRecentAuditEvents(),
       syncQueue: await listSyncQueue(),
       pendingSyncCount: await countPendingSyncItems(),
-      addBenchDraft: parsed.addBenchDraft ?? createInitialState().addBenchDraft,
+      googleIntegration: {
+        ...defaults.googleIntegration,
+        ...(parsed.googleIntegration ?? {}),
+      },
+      addBenchDraft: parsed.addBenchDraft ?? defaults.addBenchDraft,
     };
   } catch {
     const initial = createInitialState();
@@ -569,17 +588,95 @@ async function readSerialLoop() {
 
 async function syncPending() {
   const pending = await getPendingSyncItems();
+  const config = state.googleIntegration;
+
+  if (!hasGoogleIntegrationConfig(config)) {
+    addAlert('warning', 'Configure a URL do Web App do Apps Script antes de sincronizar.');
+    render();
+    return;
+  }
+
+  if (pending.length === 0) {
+    addAlert('info', 'Nao ha registros pendentes para sincronizar.');
+    render();
+    return;
+  }
+
   const syncedAt = nowIso();
-  await markSyncItemsSynced(pending.map((item) => item.id), syncedAt);
-  state.lastSyncAt = nowIso();
-  await refreshOfflineState();
+  const ids = pending.map((item) => item.id);
 
-  await appendAudit('SYNC_BATCH_SIMULATED', {
-    count: pending.length,
-    target: 'Google Drive / Sheets API',
-  });
+  try {
+    const result = await syncQueueToAppsScript(config, pending);
+    await markSyncItemsSynced(ids, syncedAt);
+    state.lastSyncAt = syncedAt;
+    state.googleIntegration = {
+      ...state.googleIntegration,
+      lastStatus: `${pending.length} registro(s) enviados`,
+      lastError: '',
+    };
+    await refreshOfflineState();
 
-  addAlert('success', `${pending.length} registro(s) marcados como sincronizados.`);
+    await appendAudit('SYNC_BATCH_GOOGLE_APPS_SCRIPT', {
+      count: pending.length,
+      target: 'Google Apps Script',
+      response: result,
+    });
+
+    addAlert('success', `${pending.length} registro(s) sincronizados com Google Sheets.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Falha desconhecida ao sincronizar.';
+    await markSyncItemsFailed(ids, message);
+    state.googleIntegration = {
+      ...state.googleIntegration,
+      lastStatus: 'Falha na sincronizacao',
+      lastError: message,
+    };
+    await refreshOfflineState();
+
+    await appendAudit('SYNC_BATCH_FAILED', {
+      count: pending.length,
+      target: 'Google Apps Script',
+      error: message,
+    });
+
+    addAlert('error', `Falha ao sincronizar: ${message}`);
+  } finally {
+    persist();
+    render();
+  }
+}
+
+async function testGoogleIntegration() {
+  const config = state.googleIntegration;
+
+  if (!hasGoogleIntegrationConfig(config)) {
+    addAlert('warning', 'Informe a URL do Web App do Apps Script.');
+    render();
+    return;
+  }
+
+  try {
+    const result = await testAppsScriptConnection(config);
+    state.googleIntegration = {
+      ...state.googleIntegration,
+      lastStatus: 'Conexao validada',
+      lastError: '',
+    };
+    await appendAudit('GOOGLE_APPS_SCRIPT_CONNECTION_TESTED', {
+      target: 'Google Apps Script',
+      response: result,
+    });
+    addAlert('success', 'Conexao com Apps Script validada.');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Falha desconhecida no teste.';
+    state.googleIntegration = {
+      ...state.googleIntegration,
+      lastStatus: 'Falha no teste',
+      lastError: message,
+    };
+    addAlert('error', `Teste Apps Script falhou: ${message}`);
+  }
+
   persist();
   render();
 }
@@ -689,6 +786,7 @@ function render() {
             ${renderBatchPanel(bench, analysis)}
             ${renderDevicePanel(bench, device)}
             ${renderReadingPanel(bench, analysis, reasons)}
+            ${renderGoogleIntegrationPanel()}
             ${renderBenchManager()}
           </div>
         </section>
@@ -866,6 +964,41 @@ function renderReadingPanel(bench, analysis, reasons) {
   `;
 }
 
+function renderGoogleIntegrationPanel() {
+  const config = state.googleIntegration;
+  const hasEndpoint = hasGoogleIntegrationConfig(config);
+
+  return `
+    <section class="panel">
+      <div class="panel-heading compact">
+        <h2>Google Sheets</h2>
+        <span class="serial-status ${hasEndpoint ? 'online' : 'offline'}">${hasEndpoint ? 'Apps Script' : 'Configurar'}</span>
+      </div>
+      <label class="field">
+        <span>URL do Web App</span>
+        <input data-action="change-google-endpoint" value="${escapeHtml(config.endpointUrl)}" placeholder="https://script.google.com/macros/s/.../exec" />
+      </label>
+      <label class="field">
+        <span>Chave de integracao</span>
+        <input data-action="change-google-key" type="password" value="${escapeHtml(config.integrationKey)}" placeholder="Opcional, mas recomendado" />
+      </label>
+      <label class="field">
+        <span>ID da planilha</span>
+        <input data-action="change-google-spreadsheet" value="${escapeHtml(config.spreadsheetId)}" placeholder="Opcional se fixo no Apps Script" />
+      </label>
+      <div class="integration-status ${config.lastError ? 'danger' : ''}">
+        <span>Status</span>
+        <strong>${escapeHtml(config.lastStatus || 'Nao configurado')}</strong>
+        ${config.lastError ? `<small>${escapeHtml(config.lastError)}</small>` : ''}
+      </div>
+      <div class="button-row">
+        <button class="soft-button" data-action="test-google-integration" type="button">Testar conexao</button>
+        <button class="primary-button" data-action="sync-pending" type="button">Enviar fila</button>
+      </div>
+    </section>
+  `;
+}
+
 function renderBenchManager() {
   const draft = state.addBenchDraft;
   const template = RACK_TEMPLATES[draft.templateCode] ?? RACK_TEMPLATES.TRAY_30_3X10;
@@ -993,6 +1126,7 @@ function handleClick(event) {
   if (action === 'connect-serial') connectSerial();
   if (action === 'disconnect-serial') disconnectSerial();
   if (action === 'sync-pending') syncPending();
+  if (action === 'test-google-integration') testGoogleIntegration();
   if (action === 'add-bench') addBench();
   if (action === 'apply-layout') applyLayoutToCurrentBench();
 
@@ -1078,6 +1212,23 @@ function handleInput(event) {
 
   if (action === 'draft-columns') {
     state.addBenchDraft.columns = Number(target.value);
+    persist();
+  }
+
+  if (action === 'change-google-endpoint') {
+    state.googleIntegration.endpointUrl = target.value.trim();
+    state.googleIntegration.lastStatus = state.googleIntegration.endpointUrl ? 'Configurado' : 'Nao configurado';
+    state.googleIntegration.lastError = '';
+    persist();
+  }
+
+  if (action === 'change-google-key') {
+    state.googleIntegration.integrationKey = target.value;
+    persist();
+  }
+
+  if (action === 'change-google-spreadsheet') {
+    state.googleIntegration.spreadsheetId = target.value.trim();
     persist();
   }
 }

@@ -49,6 +49,7 @@ npm run check
 - Leitura manual e simulada para testes sem aparelho.
 - Controle de R2, CQ, diluicao, estouro de escala e salto de sequencia.
 - Fila offline real em IndexedDB com Dexie.
+- Sincronizacao da fila com Google Sheets via Web App do Apps Script.
 - Trilha de auditoria local.
 
 ## Aparelhos cadastrados
@@ -66,7 +67,7 @@ npm run check
 
 ## Proximas etapas
 
-- Implementar sincronizacao real com Google Sheets/Drive.
+- Criar retry com backoff para falhas temporarias de sincronizacao.
 - Validar os parsers seriais com linhas reais dos aparelhos.
 - Criar abertura/fechamento formal de lote.
 - Adicionar autenticacao de operadores.
@@ -79,3 +80,17 @@ A interface usa duas camadas locais:
 - IndexedDB/Dexie: fila de sincronizacao e trilha de auditoria.
 
 O modulo responsavel e [src/offline-db.js](src/offline-db.js). A fila antiga em `localStorage`, quando existir, e migrada automaticamente na primeira abertura.
+
+## Google Sheets via Apps Script
+
+A interface envia os registros pendentes para um Web App do Google Apps Script usando `POST` simples. Configure na tela:
+
+- URL do Web App publicado.
+- Chave de integracao.
+- ID da planilha, quando o script nao estiver vinculado diretamente a ela.
+
+Script de referencia para colar no Apps Script:
+
+[docs/google-apps-script-webapp.js](docs/google-apps-script-webapp.js)
+
+Nota: a chave de integracao configurada no navegador e uma protecao simples para MVP. Para producao com credenciais fortes, use um backend ou controle de identidade corporativo.

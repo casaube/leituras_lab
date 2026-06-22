@@ -446,6 +446,7 @@ button:disabled,
 
 .method-hint,
 .device-info,
+.integration-status,
 .gate,
 .qc-box,
 .serial-monitor,
@@ -489,6 +490,35 @@ button:disabled,
 
 .device-info small {
   line-height: 1.4;
+}
+
+.integration-status {
+  display: grid;
+  gap: 4px;
+  background: #f8fafc;
+}
+
+.integration-status span {
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.integration-status strong,
+.integration-status small {
+  color: #334155;
+}
+
+.integration-status.danger {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.integration-status.danger span,
+.integration-status.danger strong,
+.integration-status.danger small {
+  color: #991b1b;
 }
 
 .gate,

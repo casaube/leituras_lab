@@ -270,9 +270,15 @@ Fluxo:
 5. A interface envia leituras para a URL do Web App.
 6. O Apps Script faz append na planilha.
 
+O arquivo de referencia do Web App esta em:
+
+```txt
+docs/google-apps-script-webapp.js
+```
+
 Esta opcao e boa para MVP rapido, mas precisa cuidado com seguranca:
 
-- Usar segredo de integracao ou assinatura HMAC.
+- Usar chave de integracao para MVP e migrar para backend/identidade corporativa quando houver dados sensiveis.
 - Nao transmitir tokens OAuth do Apps Script para o cliente.
 - Controlar permissoes e ownership do script.
 - Avaliar quotas do Apps Script.
@@ -297,10 +303,9 @@ Esta opcao e boa para MVP rapido, mas precisa cuidado com seguranca:
 
 ### Fase 3 - Integracao Google
 
-- Escolher estrategia: OAuth no navegador, backend com Service Account ou Apps Script.
+- Publicar o Apps Script como Web App.
+- Configurar URL, chave de integracao e ID da planilha na interface.
 - Criar planilha oficial e abas padronizadas.
-- Implementar `GoogleSheetsReadingsRepository`.
-- Implementar `GoogleAuthProvider`.
 - Adicionar tela de status de sincronizacao: pendentes, enviados, falhas e ultimo erro.
 - Registrar resposta do Google na trilha de auditoria.
 

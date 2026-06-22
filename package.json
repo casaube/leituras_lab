@@ -6,6 +6,6 @@
   "description": "Interface de leitura de bancada para o laboratorio Solo & Companhia.",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check src/app.js && node --check src/data.js && node --check src/offline-db.js && node --check server.mjs"
+    "check": "node --check src/app.js && node --check src/data.js && node --check src/offline-db.js && node --check src/google-apps-script-client.js && node --check server.mjs"
   }
 }
